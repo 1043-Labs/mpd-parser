@@ -1,6 +1,7 @@
 import { values } from './utils/object';
 import { findIndexes } from './utils/list';
 import { addSegmentsToPlaylist } from './segment/segmentBase';
+import { constructTemplateUrl } from './segment/segmentTemplate';
 import { byteRangeToString } from './segment/urlType';
 
 const mergeDiscontiguousPlaylists = playlists => {

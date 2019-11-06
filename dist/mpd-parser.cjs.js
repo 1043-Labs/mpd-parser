@@ -402,6 +402,308 @@ var addSegmentsToPlaylist = function addSegmentsToPlaylist(playlist, sidx, baseU
   return playlist;
 };
 
+/**
+ * Calculates the R (repetition) value for a live stream (for the final segment
+ * in a manifest where the r value is negative 1)
+ *
+ * @param {Object} attributes
+ *        Object containing all inherited attributes from parent elements with attribute
+ *        names as keys
+ * @param {number} time
+ *        current time (typically the total time up until the final segment)
+ * @param {number} duration
+ *        duration property for the given <S />
+ *
+ * @return {number}
+ *        R value to reach the end of the given period
+ */
+var getLiveRValue = function getLiveRValue(attributes, time, duration) {
+  var NOW = attributes.NOW,
+      clientOffset = attributes.clientOffset,
+      availabilityStartTime = attributes.availabilityStartTime,
+      _attributes$timescale = attributes.timescale,
+      timescale = _attributes$timescale === void 0 ? 1 : _attributes$timescale,
+      _attributes$start = attributes.start,
+      start = _attributes$start === void 0 ? 0 : _attributes$start,
+      _attributes$minimumUp = attributes.minimumUpdatePeriod,
+      minimumUpdatePeriod = _attributes$minimumUp === void 0 ? 0 : _attributes$minimumUp;
+  var now = (NOW + clientOffset) / 1000;
+  var periodStartWC = availabilityStartTime + start;
+  var periodEndWC = now + minimumUpdatePeriod;
+  var periodDuration = periodEndWC - periodStartWC;
+  return Math.ceil((periodDuration * timescale - time) / duration);
+};
+/**
+ * Uses information provided by SegmentTemplate.SegmentTimeline to determine segment
+ * timing and duration
+ *
+ * @param {Object} attributes
+ *        Object containing all inherited attributes from parent elements with attribute
+ *        names as keys
+ * @param {Object[]} segmentTimeline
+ *        List of objects representing the attributes of each S element contained within
+ *
+ * @return {{number: number, duration: number, time: number, timeline: number}[]}
+ *         List of Objects with segment timing and duration info
+ */
+
+
+var parseByTimeline = function parseByTimeline(attributes, segmentTimeline) {
+  var _attributes$type = attributes.type,
+      type = _attributes$type === void 0 ? 'static' : _attributes$type,
+      _attributes$minimumUp2 = attributes.minimumUpdatePeriod,
+      minimumUpdatePeriod = _attributes$minimumUp2 === void 0 ? 0 : _attributes$minimumUp2,
+      _attributes$media = attributes.media,
+      media = _attributes$media === void 0 ? '' : _attributes$media,
+      sourceDuration = attributes.sourceDuration,
+      _attributes$timescale2 = attributes.timescale,
+      timescale = _attributes$timescale2 === void 0 ? 1 : _attributes$timescale2,
+      _attributes$startNumb = attributes.startNumber,
+      startNumber = _attributes$startNumb === void 0 ? 1 : _attributes$startNumb,
+      timeline = attributes.periodIndex;
+  var segments = [];
+  var time = -1;
+
+  for (var sIndex = 0; sIndex < segmentTimeline.length; sIndex++) {
+    var S = segmentTimeline[sIndex];
+    var duration = S.d;
+    var repeat = S.r || 0;
+    var segmentTime = S.t || 0;
+
+    if (time < 0) {
+      // first segment
+      time = segmentTime;
+    }
+
+    if (segmentTime && segmentTime > time) {
+      // discontinuity
+      // TODO: How to handle this type of discontinuity
+      // timeline++ here would treat it like HLS discontuity and content would
+      // get appended without gap
+      // E.G.
+      //  <S t="0" d="1" />
+      //  <S d="1" />
+      //  <S d="1" />
+      //  <S t="5" d="1" />
+      // would have $Time$ values of [0, 1, 2, 5]
+      // should this be appened at time positions [0, 1, 2, 3],(#EXT-X-DISCONTINUITY)
+      // or [0, 1, 2, gap, gap, 5]? (#EXT-X-GAP)
+      // does the value of sourceDuration consider this when calculating arbitrary
+      // negative @r repeat value?
+      // E.G. Same elements as above with this added at the end
+      //  <S d="1" r="-1" />
+      //  with a sourceDuration of 10
+      // Would the 2 gaps be included in the time duration calculations resulting in
+      // 8 segments with $Time$ values of [0, 1, 2, 5, 6, 7, 8, 9] or 10 segments
+      // with $Time$ values of [0, 1, 2, 5, 6, 7, 8, 9, 10, 11] ?
+      time = segmentTime;
+    }
+
+    var count = void 0;
+
+    if (repeat < 0) {
+      var nextS = sIndex + 1;
+
+      if (nextS === segmentTimeline.length) {
+        // last segment
+        if (type === 'dynamic' && minimumUpdatePeriod > 0 && media.indexOf('$Number$') > 0) {
+          count = getLiveRValue(attributes, time, duration);
+        } else {
+          // TODO: This may be incorrect depending on conclusion of TODO above
+          count = (sourceDuration * timescale - time) / duration;
+        }
+      } else {
+        count = (segmentTimeline[nextS].t - time) / duration;
+      }
+    } else {
+      count = repeat + 1;
+    }
+
+    var end = startNumber + segments.length + count;
+    var number = startNumber + segments.length;
+
+    while (number < end) {
+      segments.push({
+        number: number,
+        duration: duration / timescale,
+        time: time,
+        timeline: timeline
+      });
+      time += duration;
+      number++;
+    }
+  }
+
+  return segments;
+};
+
+var identifierPattern = /\$([A-z]*)(?:(%0)([0-9]+)d)?\$/g;
+/**
+ * Replaces template identifiers with corresponding values. To be used as the callback
+ * for String.prototype.replace
+ *
+ * @name replaceCallback
+ * @function
+ * @param {string} match
+ *        Entire match of identifier
+ * @param {string} identifier
+ *        Name of matched identifier
+ * @param {string} format
+ *        Format tag string. Its presence indicates that padding is expected
+ * @param {string} width
+ *        Desired length of the replaced value. Values less than this width shall be left
+ *        zero padded
+ * @return {string}
+ *         Replacement for the matched identifier
+ */
+
+/**
+ * Returns a function to be used as a callback for String.prototype.replace to replace
+ * template identifiers
+ *
+ * @param {Obect} values
+ *        Object containing values that shall be used to replace known identifiers
+ * @param {number} values.RepresentationID
+ *        Value of the Representation@id attribute
+ * @param {number} values.Number
+ *        Number of the corresponding segment
+ * @param {number} values.Bandwidth
+ *        Value of the Representation@bandwidth attribute.
+ * @param {number} values.Time
+ *        Timestamp value of the corresponding segment
+ * @return {replaceCallback}
+ *         Callback to be used with String.prototype.replace to replace identifiers
+ */
+
+var identifierReplacement = function identifierReplacement(values) {
+  return function (match, identifier, format, width) {
+    if (match === '$$') {
+      // escape sequence
+      return '$';
+    }
+
+    if (typeof values[identifier] === 'undefined') {
+      return match;
+    }
+
+    var value = '' + values[identifier];
+
+    if (identifier === 'RepresentationID') {
+      // Format tag shall not be present with RepresentationID
+      return value;
+    }
+
+    if (!format) {
+      width = 1;
+    } else {
+      width = parseInt(width, 10);
+    }
+
+    if (value.length >= width) {
+      return value;
+    }
+
+    return "" + new Array(width - value.length + 1).join('0') + value;
+  };
+};
+/**
+ * Constructs a segment url from a template string
+ *
+ * @param {string} url
+ *        Template string to construct url from
+ * @param {Obect} values
+ *        Object containing values that shall be used to replace known identifiers
+ * @param {number} values.RepresentationID
+ *        Value of the Representation@id attribute
+ * @param {number} values.Number
+ *        Number of the corresponding segment
+ * @param {number} values.Bandwidth
+ *        Value of the Representation@bandwidth attribute.
+ * @param {number} values.Time
+ *        Timestamp value of the corresponding segment
+ * @return {string}
+ *         Segment url with identifiers replaced
+ */
+
+var constructTemplateUrl = function constructTemplateUrl(url, values) {
+  return url.replace(identifierPattern, identifierReplacement(values));
+};
+/**
+ * Generates a list of objects containing timing and duration information about each
+ * segment needed to generate segment uris and the complete segment object
+ *
+ * @param {Object} attributes
+ *        Object containing all inherited attributes from parent elements with attribute
+ *        names as keys
+ * @param {Object[]|undefined} segmentTimeline
+ *        List of objects representing the attributes of each S element contained within
+ *        the SegmentTimeline element
+ * @return {{number: number, duration: number, time: number, timeline: number}[]}
+ *         List of Objects with segment timing and duration info
+ */
+
+var parseTemplateInfo = function parseTemplateInfo(attributes, segmentTimeline) {
+  if (!attributes.duration && !segmentTimeline) {
+    // if neither @duration or SegmentTimeline are present, then there shall be exactly
+    // one media segment
+    return [{
+      number: attributes.startNumber || 1,
+      duration: attributes.sourceDuration,
+      time: 0,
+      timeline: attributes.periodIndex
+    }];
+  }
+
+  if (attributes.duration) {
+    return parseByDuration(attributes);
+  }
+
+  return parseByTimeline(attributes, segmentTimeline);
+};
+/**
+ * Generates a list of segments using information provided by the SegmentTemplate element
+ *
+ * @param {Object} attributes
+ *        Object containing all inherited attributes from parent elements with attribute
+ *        names as keys
+ * @param {Object[]|undefined} segmentTimeline
+ *        List of objects representing the attributes of each S element contained within
+ *        the SegmentTimeline element
+ * @return {Object[]}
+ *         List of segment objects
+ */
+
+var segmentsFromTemplate = function segmentsFromTemplate(attributes, segmentTimeline) {
+  var templateValues = {
+    RepresentationID: attributes.id,
+    Bandwidth: attributes.bandwidth || 0
+  };
+  var _attributes$initializ = attributes.initialization,
+      initialization = _attributes$initializ === void 0 ? {
+    sourceURL: '',
+    range: ''
+  } : _attributes$initializ;
+  var mapSegment = urlTypeToSegment({
+    baseUrl: attributes.baseUrl,
+    source: constructTemplateUrl(initialization.sourceURL, templateValues),
+    range: initialization.range
+  });
+  var segments = parseTemplateInfo(attributes, segmentTimeline);
+  return segments.map(function (segment) {
+    templateValues.Number = segment.number;
+    templateValues.Time = segment.time;
+    var uri = constructTemplateUrl(attributes.media || '', templateValues);
+    return {
+      uri: uri,
+      timeline: segment.timeline,
+      duration: segment.duration,
+      resolvedUri: resolveUrl(attributes.baseUrl || '', uri),
+      map: mapSegment,
+      number: segment.number
+    };
+  });
+};
+
 var mergeDiscontiguousPlaylists = function mergeDiscontiguousPlaylists(playlists) {
   var mergedPlaylists = values(playlists.reduce(function (acc, playlist) {
     // assuming playlist IDs are the same across periods
@@ -696,308 +998,6 @@ var toM3u8 = function toM3u8(dashPlaylists, sidxMapping) {
   }
 
   return master;
-};
-
-/**
- * Calculates the R (repetition) value for a live stream (for the final segment
- * in a manifest where the r value is negative 1)
- *
- * @param {Object} attributes
- *        Object containing all inherited attributes from parent elements with attribute
- *        names as keys
- * @param {number} time
- *        current time (typically the total time up until the final segment)
- * @param {number} duration
- *        duration property for the given <S />
- *
- * @return {number}
- *        R value to reach the end of the given period
- */
-var getLiveRValue = function getLiveRValue(attributes, time, duration) {
-  var NOW = attributes.NOW,
-      clientOffset = attributes.clientOffset,
-      availabilityStartTime = attributes.availabilityStartTime,
-      _attributes$timescale = attributes.timescale,
-      timescale = _attributes$timescale === void 0 ? 1 : _attributes$timescale,
-      _attributes$start = attributes.start,
-      start = _attributes$start === void 0 ? 0 : _attributes$start,
-      _attributes$minimumUp = attributes.minimumUpdatePeriod,
-      minimumUpdatePeriod = _attributes$minimumUp === void 0 ? 0 : _attributes$minimumUp;
-  var now = (NOW + clientOffset) / 1000;
-  var periodStartWC = availabilityStartTime + start;
-  var periodEndWC = now + minimumUpdatePeriod;
-  var periodDuration = periodEndWC - periodStartWC;
-  return Math.ceil((periodDuration * timescale - time) / duration);
-};
-/**
- * Uses information provided by SegmentTemplate.SegmentTimeline to determine segment
- * timing and duration
- *
- * @param {Object} attributes
- *        Object containing all inherited attributes from parent elements with attribute
- *        names as keys
- * @param {Object[]} segmentTimeline
- *        List of objects representing the attributes of each S element contained within
- *
- * @return {{number: number, duration: number, time: number, timeline: number}[]}
- *         List of Objects with segment timing and duration info
- */
-
-
-var parseByTimeline = function parseByTimeline(attributes, segmentTimeline) {
-  var _attributes$type = attributes.type,
-      type = _attributes$type === void 0 ? 'static' : _attributes$type,
-      _attributes$minimumUp2 = attributes.minimumUpdatePeriod,
-      minimumUpdatePeriod = _attributes$minimumUp2 === void 0 ? 0 : _attributes$minimumUp2,
-      _attributes$media = attributes.media,
-      media = _attributes$media === void 0 ? '' : _attributes$media,
-      sourceDuration = attributes.sourceDuration,
-      _attributes$timescale2 = attributes.timescale,
-      timescale = _attributes$timescale2 === void 0 ? 1 : _attributes$timescale2,
-      _attributes$startNumb = attributes.startNumber,
-      startNumber = _attributes$startNumb === void 0 ? 1 : _attributes$startNumb,
-      timeline = attributes.periodIndex;
-  var segments = [];
-  var time = -1;
-
-  for (var sIndex = 0; sIndex < segmentTimeline.length; sIndex++) {
-    var S = segmentTimeline[sIndex];
-    var duration = S.d;
-    var repeat = S.r || 0;
-    var segmentTime = S.t || 0;
-
-    if (time < 0) {
-      // first segment
-      time = segmentTime;
-    }
-
-    if (segmentTime && segmentTime > time) {
-      // discontinuity
-      // TODO: How to handle this type of discontinuity
-      // timeline++ here would treat it like HLS discontuity and content would
-      // get appended without gap
-      // E.G.
-      //  <S t="0" d="1" />
-      //  <S d="1" />
-      //  <S d="1" />
-      //  <S t="5" d="1" />
-      // would have $Time$ values of [0, 1, 2, 5]
-      // should this be appened at time positions [0, 1, 2, 3],(#EXT-X-DISCONTINUITY)
-      // or [0, 1, 2, gap, gap, 5]? (#EXT-X-GAP)
-      // does the value of sourceDuration consider this when calculating arbitrary
-      // negative @r repeat value?
-      // E.G. Same elements as above with this added at the end
-      //  <S d="1" r="-1" />
-      //  with a sourceDuration of 10
-      // Would the 2 gaps be included in the time duration calculations resulting in
-      // 8 segments with $Time$ values of [0, 1, 2, 5, 6, 7, 8, 9] or 10 segments
-      // with $Time$ values of [0, 1, 2, 5, 6, 7, 8, 9, 10, 11] ?
-      time = segmentTime;
-    }
-
-    var count = void 0;
-
-    if (repeat < 0) {
-      var nextS = sIndex + 1;
-
-      if (nextS === segmentTimeline.length) {
-        // last segment
-        if (type === 'dynamic' && minimumUpdatePeriod > 0 && media.indexOf('$Number$') > 0) {
-          count = getLiveRValue(attributes, time, duration);
-        } else {
-          // TODO: This may be incorrect depending on conclusion of TODO above
-          count = (sourceDuration * timescale - time) / duration;
-        }
-      } else {
-        count = (segmentTimeline[nextS].t - time) / duration;
-      }
-    } else {
-      count = repeat + 1;
-    }
-
-    var end = startNumber + segments.length + count;
-    var number = startNumber + segments.length;
-
-    while (number < end) {
-      segments.push({
-        number: number,
-        duration: duration / timescale,
-        time: time,
-        timeline: timeline
-      });
-      time += duration;
-      number++;
-    }
-  }
-
-  return segments;
-};
-
-var identifierPattern = /\$([A-z]*)(?:(%0)([0-9]+)d)?\$/g;
-/**
- * Replaces template identifiers with corresponding values. To be used as the callback
- * for String.prototype.replace
- *
- * @name replaceCallback
- * @function
- * @param {string} match
- *        Entire match of identifier
- * @param {string} identifier
- *        Name of matched identifier
- * @param {string} format
- *        Format tag string. Its presence indicates that padding is expected
- * @param {string} width
- *        Desired length of the replaced value. Values less than this width shall be left
- *        zero padded
- * @return {string}
- *         Replacement for the matched identifier
- */
-
-/**
- * Returns a function to be used as a callback for String.prototype.replace to replace
- * template identifiers
- *
- * @param {Obect} values
- *        Object containing values that shall be used to replace known identifiers
- * @param {number} values.RepresentationID
- *        Value of the Representation@id attribute
- * @param {number} values.Number
- *        Number of the corresponding segment
- * @param {number} values.Bandwidth
- *        Value of the Representation@bandwidth attribute.
- * @param {number} values.Time
- *        Timestamp value of the corresponding segment
- * @return {replaceCallback}
- *         Callback to be used with String.prototype.replace to replace identifiers
- */
-
-var identifierReplacement = function identifierReplacement(values) {
-  return function (match, identifier, format, width) {
-    if (match === '$$') {
-      // escape sequence
-      return '$';
-    }
-
-    if (typeof values[identifier] === 'undefined') {
-      return match;
-    }
-
-    var value = '' + values[identifier];
-
-    if (identifier === 'RepresentationID') {
-      // Format tag shall not be present with RepresentationID
-      return value;
-    }
-
-    if (!format) {
-      width = 1;
-    } else {
-      width = parseInt(width, 10);
-    }
-
-    if (value.length >= width) {
-      return value;
-    }
-
-    return "" + new Array(width - value.length + 1).join('0') + value;
-  };
-};
-/**
- * Constructs a segment url from a template string
- *
- * @param {string} url
- *        Template string to construct url from
- * @param {Obect} values
- *        Object containing values that shall be used to replace known identifiers
- * @param {number} values.RepresentationID
- *        Value of the Representation@id attribute
- * @param {number} values.Number
- *        Number of the corresponding segment
- * @param {number} values.Bandwidth
- *        Value of the Representation@bandwidth attribute.
- * @param {number} values.Time
- *        Timestamp value of the corresponding segment
- * @return {string}
- *         Segment url with identifiers replaced
- */
-
-var constructTemplateUrl$1 = function constructTemplateUrl(url, values) {
-  return url.replace(identifierPattern, identifierReplacement(values));
-};
-/**
- * Generates a list of objects containing timing and duration information about each
- * segment needed to generate segment uris and the complete segment object
- *
- * @param {Object} attributes
- *        Object containing all inherited attributes from parent elements with attribute
- *        names as keys
- * @param {Object[]|undefined} segmentTimeline
- *        List of objects representing the attributes of each S element contained within
- *        the SegmentTimeline element
- * @return {{number: number, duration: number, time: number, timeline: number}[]}
- *         List of Objects with segment timing and duration info
- */
-
-var parseTemplateInfo = function parseTemplateInfo(attributes, segmentTimeline) {
-  if (!attributes.duration && !segmentTimeline) {
-    // if neither @duration or SegmentTimeline are present, then there shall be exactly
-    // one media segment
-    return [{
-      number: attributes.startNumber || 1,
-      duration: attributes.sourceDuration,
-      time: 0,
-      timeline: attributes.periodIndex
-    }];
-  }
-
-  if (attributes.duration) {
-    return parseByDuration(attributes);
-  }
-
-  return parseByTimeline(attributes, segmentTimeline);
-};
-/**
- * Generates a list of segments using information provided by the SegmentTemplate element
- *
- * @param {Object} attributes
- *        Object containing all inherited attributes from parent elements with attribute
- *        names as keys
- * @param {Object[]|undefined} segmentTimeline
- *        List of objects representing the attributes of each S element contained within
- *        the SegmentTimeline element
- * @return {Object[]}
- *         List of segment objects
- */
-
-var segmentsFromTemplate = function segmentsFromTemplate(attributes, segmentTimeline) {
-  var templateValues = {
-    RepresentationID: attributes.id,
-    Bandwidth: attributes.bandwidth || 0
-  };
-  var _attributes$initializ = attributes.initialization,
-      initialization = _attributes$initializ === void 0 ? {
-    sourceURL: '',
-    range: ''
-  } : _attributes$initializ;
-  var mapSegment = urlTypeToSegment({
-    baseUrl: attributes.baseUrl,
-    source: constructTemplateUrl$1(initialization.sourceURL, templateValues),
-    range: initialization.range
-  });
-  var segments = parseTemplateInfo(attributes, segmentTimeline);
-  return segments.map(function (segment) {
-    templateValues.Number = segment.number;
-    templateValues.Time = segment.time;
-    var uri = constructTemplateUrl$1(attributes.media || '', templateValues);
-    return {
-      uri: uri,
-      timeline: segment.timeline,
-      duration: segment.duration,
-      resolvedUri: resolveUrl(attributes.baseUrl || '', uri),
-      map: mapSegment,
-      number: segment.number
-    };
-  });
 };
 
 /**
