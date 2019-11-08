@@ -80,7 +80,10 @@ export const formatAudioPlaylist = ({ attributes, segments, sidx }) => {
     targetDuration: attributes.duration,
     segments,
     mediaSequence: segments.length ? segments[0].number : 1,
-    init: constructTemplateUrl(attributes.initialization.sourceURL, {RepresentationID: attributes.id})
+    init: constructTemplateUrl(attributes.initialization.sourceURL, {
+      RepresentationID: attributes.id,
+      Bandwidth: attributes.bandwidth
+    })
   };
 
   if (attributes.contentProtection) {
@@ -220,7 +223,10 @@ export const formatVideoPlaylist = ({ attributes, segments, sidx }) => {
     targetDuration: attributes.duration,
     segments,
     mediaSequence: segments.length ? segments[0].number : 1,
-    init: constructTemplateUrl(attributes.initialization.sourceURL, {RepresentationID: attributes.id})
+    init: constructTemplateUrl(attributes.initialization.sourceURL, {
+      RepresentationID: attributes.id,
+      Bandwidth: attributes.bandwidth
+    })
   };
 
   if (attributes.contentProtection) {

@@ -786,7 +786,8 @@ var formatAudioPlaylist = function formatAudioPlaylist(_ref) {
     segments: segments,
     mediaSequence: segments.length ? segments[0].number : 1,
     init: constructTemplateUrl(attributes.initialization.sourceURL, {
-      RepresentationID: attributes.id
+      RepresentationID: attributes.id,
+      Bandwidth: attributes.bandwidth
     })
   };
 
@@ -925,7 +926,8 @@ var formatVideoPlaylist = function formatVideoPlaylist(_ref3) {
     segments: segments,
     mediaSequence: segments.length ? segments[0].number : 1,
     init: constructTemplateUrl(attributes.initialization.sourceURL, {
-      RepresentationID: attributes.id
+      RepresentationID: attributes.id,
+      Bandwidth: attributes.bandwidth
     })
   };
 

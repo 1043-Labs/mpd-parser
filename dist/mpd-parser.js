@@ -967,7 +967,8 @@
       segments: segments,
       mediaSequence: segments.length ? segments[0].number : 1,
       init: constructTemplateUrl(attributes.initialization.sourceURL, {
-        RepresentationID: attributes.id
+        RepresentationID: attributes.id,
+        Bandwidth: attributes.bandwidth
       })
     };
 
@@ -1106,7 +1107,8 @@
       segments: segments,
       mediaSequence: segments.length ? segments[0].number : 1,
       init: constructTemplateUrl(attributes.initialization.sourceURL, {
-        RepresentationID: attributes.id
+        RepresentationID: attributes.id,
+        Bandwidth: attributes.bandwidth
       })
     };
 
