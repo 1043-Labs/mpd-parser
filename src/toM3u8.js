@@ -248,7 +248,8 @@ export const toM3u8 = (dashPlaylists, sidxMapping = {}) => {
   // grab all master attributes
   const {
     sourceDuration: duration,
-    minimumUpdatePeriod = 0
+    minimumUpdatePeriod = 0,
+    type: type,
   } = dashPlaylists[0].attributes;
 
   const videoOnly = ({ attributes }) =>
@@ -276,7 +277,8 @@ export const toM3u8 = (dashPlaylists, sidxMapping = {}) => {
     uri: '',
     duration,
     playlists: addSegmentInfoFromSidx(videoPlaylists, sidxMapping),
-    minimumUpdatePeriod: minimumUpdatePeriod * 1000
+    minimumUpdatePeriod: minimumUpdatePeriod * 1000,
+    type: type
   };
 
   if (audioPlaylists.length) {

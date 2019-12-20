@@ -1137,7 +1137,8 @@
     var _dashPlaylists$0$attr = dashPlaylists[0].attributes,
         duration = _dashPlaylists$0$attr.sourceDuration,
         _dashPlaylists$0$attr2 = _dashPlaylists$0$attr.minimumUpdatePeriod,
-        minimumUpdatePeriod = _dashPlaylists$0$attr2 === void 0 ? 0 : _dashPlaylists$0$attr2;
+        minimumUpdatePeriod = _dashPlaylists$0$attr2 === void 0 ? 0 : _dashPlaylists$0$attr2,
+        type = _dashPlaylists$0$attr.type;
 
     var videoOnly = function videoOnly(_ref4) {
       var attributes = _ref4.attributes;
@@ -1169,7 +1170,8 @@
       uri: '',
       duration: duration,
       playlists: addSegmentInfoFromSidx(videoPlaylists, sidxMapping),
-      minimumUpdatePeriod: minimumUpdatePeriod * 1000
+      minimumUpdatePeriod: minimumUpdatePeriod * 1000,
+      type: type
     };
 
     if (audioPlaylists.length) {
