@@ -250,6 +250,8 @@ export const toM3u8 = (dashPlaylists, sidxMapping = {}) => {
     sourceDuration: duration,
     minimumUpdatePeriod = 0,
     type: type,
+    suggestedPresentationDelay,
+    minimumUpdatePeriod = 0
   } = dashPlaylists[0].attributes;
 
   const videoOnly = ({ attributes }) =>
@@ -280,6 +282,10 @@ export const toM3u8 = (dashPlaylists, sidxMapping = {}) => {
     minimumUpdatePeriod: minimumUpdatePeriod * 1000,
     type: type
   };
+
+  if (type === 'dynamic') {
+    master.suggestedPresentationDelay = suggestedPresentationDelay;
+  }
 
   if (audioPlaylists.length) {
     master.mediaGroups.AUDIO.audio = organizeAudioPlaylists(audioPlaylists, sidxMapping);
