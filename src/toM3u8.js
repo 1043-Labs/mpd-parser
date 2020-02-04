@@ -248,7 +248,6 @@ export const toM3u8 = (dashPlaylists, sidxMapping = {}) => {
   // grab all master attributes
   const {
     sourceDuration: duration,
-    minimumUpdatePeriod = 0,
     type: type,
     suggestedPresentationDelay,
     minimumUpdatePeriod = 0

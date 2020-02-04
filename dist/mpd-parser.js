@@ -1,4 +1,4 @@
-/*! @name mpd-parser @version 0.9.0 @license Apache-2.0 */
+/*! @name mpd-parser @version 0.10.0 @license Apache-2.0 */
 (function (global, factory) {
   typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('global/window'), require('xmldom')) :
   typeof define === 'function' && define.amd ? define(['exports', 'global/window', 'xmldom'], factory) :
@@ -7,7 +7,7 @@
 
   window$2 = window$2 && window$2.hasOwnProperty('default') ? window$2['default'] : window$2;
 
-  var version = "0.9.0";
+  var version = "0.10.0";
 
   var isObject = function isObject(obj) {
     return !!obj && typeof obj === 'object';
@@ -1136,9 +1136,10 @@
 
     var _dashPlaylists$0$attr = dashPlaylists[0].attributes,
         duration = _dashPlaylists$0$attr.sourceDuration,
+        type = _dashPlaylists$0$attr.type,
+        suggestedPresentationDelay = _dashPlaylists$0$attr.suggestedPresentationDelay,
         _dashPlaylists$0$attr2 = _dashPlaylists$0$attr.minimumUpdatePeriod,
-        minimumUpdatePeriod = _dashPlaylists$0$attr2 === void 0 ? 0 : _dashPlaylists$0$attr2,
-        type = _dashPlaylists$0$attr.type;
+        minimumUpdatePeriod = _dashPlaylists$0$attr2 === void 0 ? 0 : _dashPlaylists$0$attr2;
 
     var videoOnly = function videoOnly(_ref4) {
       var attributes = _ref4.attributes;
@@ -1173,6 +1174,10 @@
       minimumUpdatePeriod: minimumUpdatePeriod * 1000,
       type: type
     };
+
+    if (type === 'dynamic') {
+      master.suggestedPresentationDelay = suggestedPresentationDelay;
+    }
 
     if (audioPlaylists.length) {
       master.mediaGroups.AUDIO.audio = organizeAudioPlaylists(audioPlaylists, sidxMapping);
@@ -1414,6 +1419,32 @@
      */
     minimumUpdatePeriod: function minimumUpdatePeriod(value) {
       return parseDuration(value);
+    },
+
+    /**
+     * Specifies the suggested presentation delay. Format is a
+     * duration string as specified in ISO 8601
+     *
+     * @param {string} value
+     *        value of attribute as a string
+     * @return {number}
+     *         The duration in seconds
+     */
+    suggestedPresentationDelay: function suggestedPresentationDelay(value) {
+      return parseDuration(value);
+    },
+
+    /**
+     * specifices the type of mpd. Can be either "static" or "dynamic"
+     *
+     * @param {string} value
+     *        value of attribute as a string
+     *
+     * @return {string}
+     *         The type as a string
+     */
+    type: function type(value) {
+      return value;
     },
 
     /**
